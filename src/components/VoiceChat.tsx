@@ -1,0 +1,269 @@
+import { useEffect, useState, useRef } from 'react';
+import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
+import { Mic, MicOff, Phone, PhoneOff } from 'lucide-react';
+import { useToast } from '@/hooks/use-toast';
+import { RealtimeChannel } from '@supabase/supabase-js';
+
+interface VoiceChatProps {
+  sessionCode: string;
+  peerId: string;
+}
+
+const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
+  const [isMuted, setIsMuted] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const channelRef = useRef<RealtimeChannel | null>(null);
+  const { toast } = useToast();
+
+  const configuration: RTCConfiguration = {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+    ],
+  };
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`webrtc:${sessionCode}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'webrtc_signals',
+          filter: `session_code=eq.${sessionCode}`,
+        },
+        async (payload: any) => {
+          const signal = payload.new;
+          
+          // Ignore our own signals
+          if (signal.from_peer === peerId) return;
+
+          console.log('Received signal:', signal.signal_type);
+
+          if (signal.signal_type === 'offer') {
+            await handleOffer(signal.signal_data);
+          } else if (signal.signal_type === 'answer') {
+            await handleAnswer(signal.signal_data);
+          } else if (signal.signal_type === 'ice-candidate') {
+            await handleIceCandidate(signal.signal_data);
+          }
+        }
+      )
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      disconnect();
+      supabase.removeChannel(channel);
+    };
+  }, [sessionCode, peerId]);
+
+  const sendSignal = async (type: string, data: any) => {
+    await supabase.from('webrtc_signals').insert({
+      session_code: sessionCode,
+      from_peer: peerId,
+      signal_type: type,
+      signal_data: data,
+    });
+  };
+
+  const createPeerConnection = () => {
+    const pc = new RTCPeerConnection(configuration);
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        sendSignal('ice-candidate', event.candidate);
+      }
+    };
+
+    pc.ontrack = (event) => {
+      const audio = new Audio();
+      audio.srcObject = event.streams[0];
+      audio.play();
+      setIsConnected(true);
+      setIsConnecting(false);
+    };
+
+    pc.onconnectionstatechange = () => {
+      console.log('Connection state:', pc.connectionState);
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        setIsConnected(false);
+      }
+    };
+
+    return pc;
+  };
+
+  const startCall = async () => {
+    try {
+      setIsConnecting(true);
+      
+      // Get microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStreamRef.current = stream;
+
+      // Create peer connection
+      const pc = createPeerConnection();
+      peerConnectionRef.current = pc;
+
+      // Add local stream to peer connection
+      stream.getTracks().forEach((track) => {
+        pc.addTrack(track, stream);
+      });
+
+      // Create and send offer
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await sendSignal('offer', offer);
+
+      toast({
+        title: 'Calling...',
+        description: 'Waiting for peer to connect',
+      });
+    } catch (error) {
+      console.error('Error starting call:', error);
+      setIsConnecting(false);
+      toast({
+        title: 'Error',
+        description: 'Failed to access microphone',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const handleOffer = async (offer: RTCSessionDescriptionInit) => {
+    try {
+      if (!localStreamRef.current) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStreamRef.current = stream;
+      }
+
+      const pc = createPeerConnection();
+      peerConnectionRef.current = pc;
+
+      localStreamRef.current.getTracks().forEach((track) => {
+        pc.addTrack(track, localStreamRef.current!);
+      });
+
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      await sendSignal('answer', answer);
+    } catch (error) {
+      console.error('Error handling offer:', error);
+    }
+  };
+
+  const handleAnswer = async (answer: RTCSessionDescriptionInit) => {
+    try {
+      if (peerConnectionRef.current) {
+        await peerConnectionRef.current.setRemoteDescription(
+          new RTCSessionDescription(answer)
+        );
+      }
+    } catch (error) {
+      console.error('Error handling answer:', error);
+    }
+  };
+
+  const handleIceCandidate = async (candidate: RTCIceCandidateInit) => {
+    try {
+      if (peerConnectionRef.current) {
+        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      }
+    } catch (error) {
+      console.error('Error handling ICE candidate:', error);
+    }
+  };
+
+  const toggleMute = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (audioTrack) {
+        audioTrack.enabled = !audioTrack.enabled;
+        setIsMuted(!audioTrack.enabled);
+      }
+    }
+  };
+
+  const disconnect = () => {
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track) => track.stop());
+      localStreamRef.current = null;
+    }
+
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
+
+    setIsConnected(false);
+    setIsConnecting(false);
+    setIsMuted(false);
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      {!isConnected && !isConnecting && (
+        <Button
+          onClick={startCall}
+          className="bg-success hover:bg-success/90"
+        >
+          <Phone className="mr-2 h-4 w-4" />
+          Start Voice Call
+        </Button>
+      )}
+
+      {(isConnected || isConnecting) && (
+        <>
+          <Button
+            onClick={toggleMute}
+            variant={isMuted ? 'destructive' : 'secondary'}
+            className="hover:opacity-90"
+          >
+            {isMuted ? (
+              <>
+                <MicOff className="mr-2 h-4 w-4" />
+                Unmute
+              </>
+            ) : (
+              <>
+                <Mic className="mr-2 h-4 w-4" />
+                Mute
+              </>
+            )}
+          </Button>
+
+          <Button
+            onClick={disconnect}
+            variant="destructive"
+          >
+            <PhoneOff className="mr-2 h-4 w-4" />
+            End Call
+          </Button>
+
+          {isConnecting && (
+            <span className="text-sm text-muted-foreground animate-pulse">
+              Connecting...
+            </span>
+          )}
+
+          {isConnected && (
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
+              <span className="text-sm text-success">Connected</span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+export default VoiceChat;
