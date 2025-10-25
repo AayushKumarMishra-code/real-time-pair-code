@@ -6,11 +6,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { Sparkles, LogIn, Copy, Check } from 'lucide-react';
 
 interface SessionControlsProps {
-  onSessionJoined: (sessionCode: string) => void;
+  onSessionJoined: (sessionCode: string, userName: string) => void;
   currentSession: string | null;
+  userName: string;
+  onUserNameChange: (name: string) => void;
 }
 
-const SessionControls = ({ onSessionJoined, currentSession }: SessionControlsProps) => {
+const SessionControls = ({ onSessionJoined, currentSession, userName, onUserNameChange }: SessionControlsProps) => {
   const [joinCode, setJoinCode] = useState('');
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
@@ -20,6 +22,15 @@ const SessionControls = ({ onSessionJoined, currentSession }: SessionControlsPro
   };
 
   const createSession = async () => {
+    if (!userName.trim()) {
+      toast({
+        title: 'Name required',
+        description: 'Please enter your name first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const sessionCode = generateSessionCode();
     
     const { error } = await supabase
@@ -35,7 +46,7 @@ const SessionControls = ({ onSessionJoined, currentSession }: SessionControlsPro
       return;
     }
 
-    onSessionJoined(sessionCode);
+    onSessionJoined(sessionCode, userName);
     toast({
       title: 'Session Created',
       description: `Session ${sessionCode} created successfully!`,
@@ -43,6 +54,15 @@ const SessionControls = ({ onSessionJoined, currentSession }: SessionControlsPro
   };
 
   const joinSession = async () => {
+    if (!userName.trim()) {
+      toast({
+        title: 'Name required',
+        description: 'Please enter your name first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     if (!joinCode.trim()) {
       toast({
         title: 'Error',
@@ -67,7 +87,7 @@ const SessionControls = ({ onSessionJoined, currentSession }: SessionControlsPro
       return;
     }
 
-    onSessionJoined(joinCode.toUpperCase());
+    onSessionJoined(joinCode.toUpperCase(), userName);
     toast({
       title: 'Joined Session',
       description: `Connected to session ${joinCode.toUpperCase()}`,
@@ -90,7 +110,7 @@ const SessionControls = ({ onSessionJoined, currentSession }: SessionControlsPro
     return (
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary/50 border border-primary/20">
-          <span className="text-muted-foreground text-sm">Session:</span>
+          <span className="text-muted-foreground text-sm">{userName} •</span>
           <span className="font-bold text-primary text-lg tracking-wider">{currentSession}</span>
           <Button
             variant="ghost"
@@ -111,6 +131,13 @@ const SessionControls = ({ onSessionJoined, currentSession }: SessionControlsPro
 
   return (
     <div className="flex items-center gap-3">
+      <Input
+        placeholder="Your name"
+        value={userName}
+        onChange={(e) => onUserNameChange(e.target.value)}
+        className="w-40 bg-secondary border-border"
+      />
+      
       <Button
         onClick={createSession}
         className="bg-gradient-to-r from-primary to-primary-glow hover:opacity-90 transition-opacity"

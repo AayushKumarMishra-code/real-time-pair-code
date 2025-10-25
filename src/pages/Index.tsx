@@ -6,7 +6,13 @@ import { Code2 } from 'lucide-react';
 
 const Index = () => {
   const [currentSession, setCurrentSession] = useState<string | null>(null);
+  const [userName, setUserName] = useState('');
   const [peerId] = useState(() => Math.random().toString(36).substring(7));
+
+  const handleSessionJoined = (sessionCode: string, name: string) => {
+    setCurrentSession(sessionCode);
+    setUserName(name);
+  };
 
   return (
     <div className="flex flex-col h-screen bg-background">
@@ -24,8 +30,10 @@ const Index = () => {
             </div>
 
             <SessionControls
-              onSessionJoined={setCurrentSession}
+              onSessionJoined={handleSessionJoined}
               currentSession={currentSession}
+              userName={userName}
+              onUserNameChange={setUserName}
             />
           </div>
         </div>

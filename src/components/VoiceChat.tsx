@@ -18,7 +18,22 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    // Create and configure remote audio element
+    const audio = new Audio();
+    audio.autoplay = true;
+    remoteAudioRef.current = audio;
+
+    return () => {
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = null;
+        remoteAudioRef.current = null;
+      }
+    };
+  }, []);
 
   const configuration: RTCConfiguration = {
     iceServers: [
@@ -84,9 +99,11 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     };
 
     pc.ontrack = (event) => {
-      const audio = new Audio();
-      audio.srcObject = event.streams[0];
-      audio.play();
+      console.log('Received remote track:', event.streams[0]);
+      if (remoteAudioRef.current) {
+        remoteAudioRef.current.srcObject = event.streams[0];
+        remoteAudioRef.current.play().catch(e => console.error('Error playing audio:', e));
+      }
       setIsConnected(true);
       setIsConnecting(false);
     };
