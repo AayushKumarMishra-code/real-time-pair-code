@@ -17,6 +17,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
+  const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
   const { toast } = useToast();
 
   const configuration: RTCConfiguration = {
@@ -155,6 +156,14 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await sendSignal('answer', answer);
+      
+      // Process queued ICE candidates
+      while (iceCandidateQueueRef.current.length > 0) {
+        const candidate = iceCandidateQueueRef.current.shift();
+        if (candidate) {
+          await pc.addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      }
     } catch (error) {
       console.error('Error handling offer:', error);
     }
@@ -166,6 +175,14 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
         await peerConnectionRef.current.setRemoteDescription(
           new RTCSessionDescription(answer)
         );
+        
+        // Process queued ICE candidates
+        while (iceCandidateQueueRef.current.length > 0) {
+          const candidate = iceCandidateQueueRef.current.shift();
+          if (candidate) {
+            await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        }
       }
     } catch (error) {
       console.error('Error handling answer:', error);
@@ -174,8 +191,11 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
 
   const handleIceCandidate = async (candidate: RTCIceCandidateInit) => {
     try {
-      if (peerConnectionRef.current) {
+      if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
         await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      } else {
+        // Queue the candidate if remote description is not set yet
+        iceCandidateQueueRef.current.push(candidate);
       }
     } catch (error) {
       console.error('Error handling ICE candidate:', error);
@@ -203,6 +223,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       peerConnectionRef.current = null;
     }
 
+    iceCandidateQueueRef.current = [];
     setIsConnected(false);
     setIsConnecting(false);
     setIsMuted(false);
