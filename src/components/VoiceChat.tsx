@@ -39,11 +39,19 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
     ],
     iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all',
   };
 
   useEffect(() => {
@@ -140,8 +148,27 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     try {
       setIsConnecting(true);
       
-      // Get microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Get microphone access with better error handling
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        });
+      } catch (err: any) {
+        console.error('Microphone access error:', err);
+        setIsConnecting(false);
+        toast({
+          title: 'Microphone Access Denied',
+          description: 'Please allow microphone access in your browser settings and try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       localStreamRef.current = stream;
 
       // Create peer connection
@@ -154,7 +181,9 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       });
 
       // Create and send offer
-      const offer = await pc.createOffer();
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+      });
       await pc.setLocalDescription(offer);
       await sendSignal('offer', offer);
 
@@ -167,7 +196,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       setIsConnecting(false);
       toast({
         title: 'Error',
-        description: 'Failed to access microphone',
+        description: 'Failed to start call. Please try again.',
         variant: 'destructive',
       });
     }
@@ -176,8 +205,24 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
   const handleOffer = async (offer: RTCSessionDescriptionInit) => {
     try {
       if (!localStreamRef.current) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        localStreamRef.current = stream;
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            }
+          });
+          localStreamRef.current = stream;
+        } catch (err) {
+          console.error('Microphone access error:', err);
+          toast({
+            title: 'Microphone Access Denied',
+            description: 'Please allow microphone access to receive calls.',
+            variant: 'destructive',
+          });
+          return;
+        }
       }
 
       const pc = createPeerConnection();
@@ -188,9 +233,13 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       });
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
+      const answer = await pc.createAnswer({
+        offerToReceiveAudio: true,
+      });
       await pc.setLocalDescription(answer);
       await sendSignal('answer', answer);
+      
+      setIsConnecting(true);
       
       // Process queued ICE candidates
       while (iceCandidateQueueRef.current.length > 0) {
