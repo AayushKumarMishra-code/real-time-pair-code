@@ -14,6 +14,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [incomingOffer, setIncomingOffer] = useState<RTCSessionDescriptionInit | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -74,7 +75,11 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
           console.log('Received signal:', signal.signal_type);
 
           if (signal.signal_type === 'offer') {
-            await handleOffer(signal.signal_data);
+            setIncomingOffer(signal.signal_data);
+            toast({
+              title: 'Incoming Call',
+              description: 'Someone is calling you...',
+            });
           } else if (signal.signal_type === 'answer') {
             await handleAnswer(signal.signal_data);
           } else if (signal.signal_type === 'ice-candidate') {
@@ -202,7 +207,9 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     }
   };
 
-  const handleOffer = async (offer: RTCSessionDescriptionInit) => {
+  const acceptCall = async () => {
+    if (!incomingOffer) return;
+
     try {
       if (!localStreamRef.current) {
         try {
@@ -232,7 +239,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
         pc.addTrack(track, localStreamRef.current!);
       });
 
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      await pc.setRemoteDescription(new RTCSessionDescription(incomingOffer));
       const answer = await pc.createAnswer({
         offerToReceiveAudio: true,
       });
@@ -240,6 +247,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       await sendSignal('answer', answer);
       
       setIsConnecting(true);
+      setIncomingOffer(null);
       
       // Process queued ICE candidates
       while (iceCandidateQueueRef.current.length > 0) {
@@ -249,8 +257,17 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
         }
       }
     } catch (error) {
-      console.error('Error handling offer:', error);
+      console.error('Error accepting call:', error);
+      setIncomingOffer(null);
     }
+  };
+
+  const rejectCall = () => {
+    setIncomingOffer(null);
+    toast({
+      title: 'Call Rejected',
+      description: 'You rejected the incoming call',
+    });
   };
 
   const handleAnswer = async (answer: RTCSessionDescriptionInit) => {
@@ -315,7 +332,26 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
 
   return (
     <div className="flex items-center gap-3">
-      {!isConnected && !isConnecting && (
+      {incomingOffer && (
+        <>
+          <Button
+            onClick={acceptCall}
+            className="bg-success hover:bg-success/90"
+          >
+            <Phone className="mr-2 h-4 w-4" />
+            Accept Call
+          </Button>
+          <Button
+            onClick={rejectCall}
+            variant="destructive"
+          >
+            <PhoneOff className="mr-2 h-4 w-4" />
+            Reject
+          </Button>
+        </>
+      )}
+
+      {!isConnected && !isConnecting && !incomingOffer && (
         <Button
           onClick={startCall}
           className="bg-success hover:bg-success/90"
