@@ -39,7 +39,11 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
     ],
+    iceCandidatePoolSize: 10,
   };
 
   useEffect(() => {
@@ -100,18 +104,32 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
 
     pc.ontrack = (event) => {
       console.log('Received remote track:', event.streams[0]);
-      if (remoteAudioRef.current) {
+      if (remoteAudioRef.current && event.streams[0]) {
         remoteAudioRef.current.srcObject = event.streams[0];
-        remoteAudioRef.current.play().catch(e => console.error('Error playing audio:', e));
+        remoteAudioRef.current.volume = 1.0;
+        remoteAudioRef.current.play().catch(e => {
+          console.error('Error playing audio:', e);
+          // Try again after user interaction
+          document.addEventListener('click', () => {
+            remoteAudioRef.current?.play();
+          }, { once: true });
+        });
       }
-      setIsConnected(true);
-      setIsConnecting(false);
     };
 
     pc.onconnectionstatechange = () => {
       console.log('Connection state:', pc.connectionState);
-      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+      if (pc.connectionState === 'connected') {
+        setIsConnected(true);
+        setIsConnecting(false);
+      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
         setIsConnected(false);
+        setIsConnecting(false);
+        toast({
+          title: 'Connection Lost',
+          description: 'Voice call disconnected',
+          variant: 'destructive',
+        });
       }
     };
 

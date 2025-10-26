@@ -12,12 +12,13 @@ interface CodeEditorProps {
 
 const CodeEditor = ({ sessionCode }: CodeEditorProps) => {
   const [code, setCode] = useState('');
-  const [isUpdating, setIsUpdating] = useState(false);
   const [language, setLanguage] = useState('javascript');
   const [output, setOutput] = useState('');
   const [isRunning, setIsRunning] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
+  const lastUpdateTimeRef = useRef(Date.now());
   const { toast } = useToast();
 
   useEffect(() => {
@@ -48,7 +49,9 @@ const CodeEditor = ({ sessionCode }: CodeEditorProps) => {
           filter: `session_code=eq.${sessionCode}`,
         },
         (payload: any) => {
-          if (!isUpdating) {
+          // Only update if user hasn't typed recently (500ms threshold)
+          const timeSinceLastUpdate = Date.now() - lastUpdateTimeRef.current;
+          if (!isTypingRef.current && timeSinceLastUpdate > 500) {
             setCode(payload.new.code_content || '');
           }
         }
@@ -68,7 +71,8 @@ const CodeEditor = ({ sessionCode }: CodeEditorProps) => {
   const handleCodeChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newCode = e.target.value;
     setCode(newCode);
-    setIsUpdating(true);
+    isTypingRef.current = true;
+    lastUpdateTimeRef.current = Date.now();
 
     // Debounce updates to database
     if (updateTimeoutRef.current) {
@@ -81,8 +85,11 @@ const CodeEditor = ({ sessionCode }: CodeEditorProps) => {
         .update({ code_content: newCode })
         .eq('session_code', sessionCode);
       
-      setIsUpdating(false);
-    }, 300);
+      // Allow incoming updates after a delay
+      setTimeout(() => {
+        isTypingRef.current = false;
+      }, 200);
+    }, 500);
   };
 
   const runCode = () => {
