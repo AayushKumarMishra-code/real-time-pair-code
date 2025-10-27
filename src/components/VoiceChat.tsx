@@ -14,7 +14,6 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
   const [isMuted, setIsMuted] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
-  const [incomingOffer, setIncomingOffer] = useState<RTCSessionDescriptionInit | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
@@ -40,19 +39,11 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject',
-      },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
     ],
     iceCandidatePoolSize: 10,
-    iceTransportPolicy: 'all',
   };
 
   useEffect(() => {
@@ -75,11 +66,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
           console.log('Received signal:', signal.signal_type);
 
           if (signal.signal_type === 'offer') {
-            setIncomingOffer(signal.signal_data);
-            toast({
-              title: 'Incoming Call',
-              description: 'Someone is calling you...',
-            });
+            await handleOffer(signal.signal_data);
           } else if (signal.signal_type === 'answer') {
             await handleAnswer(signal.signal_data);
           } else if (signal.signal_type === 'ice-candidate') {
@@ -153,27 +140,8 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     try {
       setIsConnecting(true);
       
-      // Get microphone access with better error handling
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          }
-        });
-      } catch (err: any) {
-        console.error('Microphone access error:', err);
-        setIsConnecting(false);
-        toast({
-          title: 'Microphone Access Denied',
-          description: 'Please allow microphone access in your browser settings and try again.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
+      // Get microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       localStreamRef.current = stream;
 
       // Create peer connection
@@ -186,9 +154,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       });
 
       // Create and send offer
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-      });
+      const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
       await sendSignal('offer', offer);
 
@@ -201,35 +167,17 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       setIsConnecting(false);
       toast({
         title: 'Error',
-        description: 'Failed to start call. Please try again.',
+        description: 'Failed to access microphone',
         variant: 'destructive',
       });
     }
   };
 
-  const acceptCall = async () => {
-    if (!incomingOffer) return;
-
+  const handleOffer = async (offer: RTCSessionDescriptionInit) => {
     try {
       if (!localStreamRef.current) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ 
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-            }
-          });
-          localStreamRef.current = stream;
-        } catch (err) {
-          console.error('Microphone access error:', err);
-          toast({
-            title: 'Microphone Access Denied',
-            description: 'Please allow microphone access to receive calls.',
-            variant: 'destructive',
-          });
-          return;
-        }
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStreamRef.current = stream;
       }
 
       const pc = createPeerConnection();
@@ -239,15 +187,10 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
         pc.addTrack(track, localStreamRef.current!);
       });
 
-      await pc.setRemoteDescription(new RTCSessionDescription(incomingOffer));
-      const answer = await pc.createAnswer({
-        offerToReceiveAudio: true,
-      });
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await sendSignal('answer', answer);
-      
-      setIsConnecting(true);
-      setIncomingOffer(null);
       
       // Process queued ICE candidates
       while (iceCandidateQueueRef.current.length > 0) {
@@ -257,17 +200,8 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
         }
       }
     } catch (error) {
-      console.error('Error accepting call:', error);
-      setIncomingOffer(null);
+      console.error('Error handling offer:', error);
     }
-  };
-
-  const rejectCall = () => {
-    setIncomingOffer(null);
-    toast({
-      title: 'Call Rejected',
-      description: 'You rejected the incoming call',
-    });
   };
 
   const handleAnswer = async (answer: RTCSessionDescriptionInit) => {
@@ -332,26 +266,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
 
   return (
     <div className="flex items-center gap-3">
-      {incomingOffer && (
-        <>
-          <Button
-            onClick={acceptCall}
-            className="bg-success hover:bg-success/90"
-          >
-            <Phone className="mr-2 h-4 w-4" />
-            Accept Call
-          </Button>
-          <Button
-            onClick={rejectCall}
-            variant="destructive"
-          >
-            <PhoneOff className="mr-2 h-4 w-4" />
-            Reject
-          </Button>
-        </>
-      )}
-
-      {!isConnected && !isConnecting && !incomingOffer && (
+      {!isConnected && !isConnecting && (
         <Button
           onClick={startCall}
           className="bg-success hover:bg-success/90"
