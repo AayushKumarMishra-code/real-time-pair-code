@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
-import { Mic, MicOff, Phone, PhoneOff } from 'lucide-react';
+import { Mic, MicOff, Phone, PhoneOff, Video, VideoOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { RealtimeChannel } from '@supabase/supabase-js';
 
@@ -12,25 +12,24 @@ interface VoiceChatProps {
 
 const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
   const [isMuted, setIsMuted] = useState(false);
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const iceCandidateQueueRef = useRef<RTCIceCandidateInit[]>([]);
-  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    // Create and configure remote audio element
-    const audio = new Audio();
-    audio.autoplay = true;
-    remoteAudioRef.current = audio;
-
     return () => {
-      if (remoteAudioRef.current) {
-        remoteAudioRef.current.srcObject = null;
-        remoteAudioRef.current = null;
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = null;
+      }
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = null;
       }
     };
   }, []);
@@ -109,28 +108,12 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     };
 
     pc.ontrack = (event) => {
-      console.log('Received remote track:', event.streams[0]);
-      if (remoteAudioRef.current && event.streams[0]) {
-        remoteAudioRef.current.srcObject = event.streams[0];
-        remoteAudioRef.current.volume = 1.0;
-        
-        // Ensure audio plays
-        const playPromise = remoteAudioRef.current.play();
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              console.log('Remote audio playing successfully');
-            })
-            .catch(e => {
-              console.error('Error playing audio:', e);
-              // Try again after user interaction
-              const playOnClick = () => {
-                remoteAudioRef.current?.play();
-                document.removeEventListener('click', playOnClick);
-              };
-              document.addEventListener('click', playOnClick);
-            });
-        }
+      console.log('Received remote track:', event.track.kind, event.streams[0]);
+      if (remoteVideoRef.current && event.streams[0]) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+        remoteVideoRef.current.play().catch(e => {
+          console.error('Error playing remote video:', e);
+        });
       }
     };
 
@@ -157,15 +140,26 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     try {
       setIsConnecting(true);
       
-      // Get microphone access with specific constraints
+      // Get microphone and camera access
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+        },
+        video: {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: 'user',
         }
       });
       localStreamRef.current = stream;
+      
+      // Display local video
+      if (localVideoRef.current) {
+        localVideoRef.current.srcObject = stream;
+        localVideoRef.current.muted = true;
+      }
 
       // Create peer connection
       const pc = createPeerConnection();
@@ -190,7 +184,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       setIsConnecting(false);
       toast({
         title: 'Error',
-        description: 'Failed to access microphone',
+        description: 'Failed to access camera or microphone',
         variant: 'destructive',
       });
     }
@@ -204,9 +198,20 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
             echoCancellation: true,
             noiseSuppression: true,
             autoGainControl: true,
+          },
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: 'user',
           }
         });
         localStreamRef.current = stream;
+        
+        // Display local video
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          localVideoRef.current.muted = true;
+        }
       }
 
       const pc = createPeerConnection();
@@ -219,6 +224,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
       const answer = await pc.createAnswer({
         offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
       });
       await pc.setLocalDescription(answer);
       await sendSignal('answer', answer);
@@ -278,10 +284,28 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     }
   };
 
+  const toggleVideo = () => {
+    if (localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        videoTrack.enabled = !videoTrack.enabled;
+        setIsVideoEnabled(videoTrack.enabled);
+      }
+    }
+  };
+
   const disconnect = () => {
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((track) => track.stop());
       localStreamRef.current = null;
+    }
+
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
     }
 
     if (peerConnectionRef.current) {
@@ -293,62 +317,106 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     setIsConnected(false);
     setIsConnecting(false);
     setIsMuted(false);
+    setIsVideoEnabled(true);
   };
 
   return (
-    <div className="flex items-center gap-3">
-      {!isConnected && !isConnecting && (
-        <Button
-          onClick={startCall}
-          className="bg-success hover:bg-success/90"
-        >
-          <Phone className="mr-2 h-4 w-4" />
-          Start Voice Call
-        </Button>
-      )}
-
+    <div className="flex flex-col gap-4">
+      {/* Video Display */}
       {(isConnected || isConnecting) && (
-        <>
-          <Button
-            onClick={toggleMute}
-            variant={isMuted ? 'destructive' : 'secondary'}
-            className="hover:opacity-90"
-          >
-            {isMuted ? (
-              <>
-                <MicOff className="mr-2 h-4 w-4" />
-                Unmute
-              </>
-            ) : (
-              <>
-                <Mic className="mr-2 h-4 w-4" />
-                Mute
-              </>
-            )}
-          </Button>
-
-          <Button
-            onClick={disconnect}
-            variant="destructive"
-          >
-            <PhoneOff className="mr-2 h-4 w-4" />
-            End Call
-          </Button>
-
-          {isConnecting && (
-            <span className="text-sm text-muted-foreground animate-pulse">
-              Connecting...
-            </span>
-          )}
-
-          {isConnected && (
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
-              <span className="text-sm text-success">Connected</span>
-            </div>
-          )}
-        </>
+        <div className="relative w-full">
+          {/* Remote Video (Main) */}
+          <video
+            ref={remoteVideoRef}
+            autoPlay
+            playsInline
+            className="w-full aspect-video bg-muted rounded-lg"
+          />
+          
+          {/* Local Video (Picture-in-Picture) */}
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="absolute bottom-4 right-4 w-48 aspect-video bg-muted rounded-lg border-2 border-border shadow-lg"
+          />
+        </div>
       )}
+
+      {/* Controls */}
+      <div className="flex items-center gap-3">
+        {!isConnected && !isConnecting && (
+          <Button
+            onClick={startCall}
+            className="bg-success hover:bg-success/90"
+          >
+            <Video className="mr-2 h-4 w-4" />
+            Start Video Call
+          </Button>
+        )}
+
+        {(isConnected || isConnecting) && (
+          <>
+            <Button
+              onClick={toggleMute}
+              variant={isMuted ? 'destructive' : 'secondary'}
+              className="hover:opacity-90"
+            >
+              {isMuted ? (
+                <>
+                  <MicOff className="mr-2 h-4 w-4" />
+                  Unmute
+                </>
+              ) : (
+                <>
+                  <Mic className="mr-2 h-4 w-4" />
+                  Mute
+                </>
+              )}
+            </Button>
+
+            <Button
+              onClick={toggleVideo}
+              variant={!isVideoEnabled ? 'destructive' : 'secondary'}
+              className="hover:opacity-90"
+            >
+              {!isVideoEnabled ? (
+                <>
+                  <VideoOff className="mr-2 h-4 w-4" />
+                  Turn On
+                </>
+              ) : (
+                <>
+                  <Video className="mr-2 h-4 w-4" />
+                  Turn Off
+                </>
+              )}
+            </Button>
+
+            <Button
+              onClick={disconnect}
+              variant="destructive"
+            >
+              <PhoneOff className="mr-2 h-4 w-4" />
+              End Call
+            </Button>
+
+            {isConnecting && (
+              <span className="text-sm text-muted-foreground animate-pulse">
+                Connecting...
+              </span>
+            )}
+
+            {isConnected && (
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
+                <span className="text-sm text-success">Connected</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };
