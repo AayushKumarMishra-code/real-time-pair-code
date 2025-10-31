@@ -39,9 +39,15 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' },
+      { 
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp',
+        ],
+        username: 'openrelayproject',
+        credential: 'openrelayproject',
+      },
     ],
     iceCandidatePoolSize: 10,
   };
@@ -107,13 +113,24 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       if (remoteAudioRef.current && event.streams[0]) {
         remoteAudioRef.current.srcObject = event.streams[0];
         remoteAudioRef.current.volume = 1.0;
-        remoteAudioRef.current.play().catch(e => {
-          console.error('Error playing audio:', e);
-          // Try again after user interaction
-          document.addEventListener('click', () => {
-            remoteAudioRef.current?.play();
-          }, { once: true });
-        });
+        
+        // Ensure audio plays
+        const playPromise = remoteAudioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              console.log('Remote audio playing successfully');
+            })
+            .catch(e => {
+              console.error('Error playing audio:', e);
+              // Try again after user interaction
+              const playOnClick = () => {
+                remoteAudioRef.current?.play();
+                document.removeEventListener('click', playOnClick);
+              };
+              document.addEventListener('click', playOnClick);
+            });
+        }
       }
     };
 
@@ -140,8 +157,14 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
     try {
       setIsConnecting(true);
       
-      // Get microphone access
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Get microphone access with specific constraints
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        }
+      });
       localStreamRef.current = stream;
 
       // Create peer connection
@@ -176,7 +199,13 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
   const handleOffer = async (offer: RTCSessionDescriptionInit) => {
     try {
       if (!localStreamRef.current) {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          }
+        });
         localStreamRef.current = stream;
       }
 
@@ -188,7 +217,9 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       });
 
       await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
+      const answer = await pc.createAnswer({
+        offerToReceiveAudio: true,
+      });
       await pc.setLocalDescription(answer);
       await sendSignal('answer', answer);
       
