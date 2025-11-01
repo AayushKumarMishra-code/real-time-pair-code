@@ -7,12 +7,13 @@ import { Sparkles, LogIn, Copy, Check } from 'lucide-react';
 
 interface SessionControlsProps {
   onSessionJoined: (sessionCode: string, userName: string) => void;
+  onSessionEnd: () => void;
   currentSession: string | null;
   userName: string;
   onUserNameChange: (name: string) => void;
 }
 
-const SessionControls = ({ onSessionJoined, currentSession, userName, onUserNameChange }: SessionControlsProps) => {
+const SessionControls = ({ onSessionJoined, onSessionEnd, currentSession, userName, onUserNameChange }: SessionControlsProps) => {
   const [joinCode, setJoinCode] = useState('');
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
@@ -125,6 +126,13 @@ const SessionControls = ({ onSessionJoined, currentSession, userName, onUserName
             )}
           </Button>
         </div>
+        <Button
+          onClick={onSessionEnd}
+          variant="destructive"
+          size="sm"
+        >
+          End Session
+        </Button>
       </div>
     );
   }

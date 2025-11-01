@@ -111,6 +111,9 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
       console.log('Received remote track:', event.track.kind, event.streams[0]);
       if (remoteVideoRef.current && event.streams[0]) {
         remoteVideoRef.current.srcObject = event.streams[0];
+        // Enable audio output
+        remoteVideoRef.current.muted = false;
+        remoteVideoRef.current.volume = 1.0;
         remoteVideoRef.current.play().catch(e => {
           console.error('Error playing remote video:', e);
         });
@@ -330,6 +333,7 @@ const VoiceChat = ({ sessionCode, peerId }: VoiceChatProps) => {
             ref={remoteVideoRef}
             autoPlay
             playsInline
+            muted={false}
             className="w-full aspect-video bg-muted rounded-lg"
           />
           

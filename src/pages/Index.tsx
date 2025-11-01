@@ -14,6 +14,10 @@ const Index = () => {
     setUserName(name);
   };
 
+  const handleSessionEnd = () => {
+    setCurrentSession(null);
+  };
+
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
@@ -31,6 +35,7 @@ const Index = () => {
 
             <SessionControls
               onSessionJoined={handleSessionJoined}
+              onSessionEnd={handleSessionEnd}
               currentSession={currentSession}
               userName={userName}
               onUserNameChange={setUserName}
