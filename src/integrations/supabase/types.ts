@@ -14,6 +14,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      session_files: {
+        Row: {
+          created_at: string
+          file_content: string | null
+          filename: string
+          id: string
+          language: string | null
+          session_code: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          file_content?: string | null
+          filename: string
+          id?: string
+          language?: string | null
+          session_code: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          file_content?: string | null
+          filename?: string
+          id?: string
+          language?: string | null
+          session_code?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       sessions: {
         Row: {
           code_content: string | null

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import SessionControls from '@/components/SessionControls';
-import CodeEditor from '@/components/CodeEditor';
+import MultiFileEditor from '@/components/MultiFileEditor';
 import VoiceChat from '@/components/VoiceChat';
 import { Code2 } from 'lucide-react';
 
@@ -42,7 +42,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
         {currentSession ? (
-          <CodeEditor sessionCode={currentSession} />
+          <MultiFileEditor sessionCode={currentSession} />
         ) : (
           <div className="h-full flex items-center justify-center">
             <div className="text-center space-y-4 max-w-md px-6">
