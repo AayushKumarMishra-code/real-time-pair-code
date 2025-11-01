@@ -92,7 +92,7 @@ const CodeEditor = ({ sessionCode }: CodeEditorProps) => {
     }, 500);
   };
 
-  const runCode = () => {
+  const runCode = async () => {
     setIsRunning(true);
     setOutput('');
 
@@ -116,11 +116,27 @@ const CodeEditor = ({ sessionCode }: CodeEditorProps) => {
           console.log = originalLog;
           setOutput(`Error: ${error instanceof Error ? error.message : String(error)}`);
         }
+      } else if (['c', 'cpp', 'python', 'java'].includes(language)) {
+        // Use edge function for compilation
+        const { data, error } = await supabase.functions.invoke('compile-code', {
+          body: { code, language }
+        });
+
+        if (error) {
+          setOutput(`Compilation error: ${error.message}`);
+          toast({
+            title: "Compilation failed",
+            description: error.message,
+            variant: "destructive"
+          });
+        } else if (data) {
+          setOutput(data.output || 'Code executed successfully (no output)');
+        }
       } else {
-        setOutput(`Execution for ${language} requires an external API. Currently only JavaScript is supported in the browser.`);
+        setOutput(`Language ${language} is not supported yet.`);
         toast({
           title: "Language not supported",
-          description: `${language} execution requires API integration`,
+          description: `${language} execution is not available`,
           variant: "destructive"
         });
       }
