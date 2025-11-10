@@ -13,6 +13,7 @@ const Index = () => {
     setCurrentSession(sessionCode);
     setUserName(name);
   };
+  
 
   const handleSessionEnd = () => {
     setCurrentSession(null);
